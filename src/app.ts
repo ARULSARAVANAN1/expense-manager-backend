@@ -15,9 +15,13 @@ import { openApiSpec } from "./docs/openapi.js";
 const app = express();
 
 app.use(express.json({ limit: "100kb" }));
+const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 app.use(
     cors({
-        origin: "http://localhost:5173",
+        origin: corsOrigins,
     })
 );
 

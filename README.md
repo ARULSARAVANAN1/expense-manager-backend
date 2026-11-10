@@ -9,6 +9,26 @@ After starting the server with `npm run dev`, open
 available at `http://localhost:3000/api/openapi.json`. In Swagger UI, use
 **Authorize** to enter a bearer token before calling protected routes.
 
+## Deploy to Vercel
+
+The `api/index.ts` serverless entry point reuses the Express app and cached
+MongoDB connection. `vercel.json` rewrites requests to that entry point while
+preserving the existing `/api/...` routes.
+
+1. Import this repository into Vercel and set the project root to this backend
+   directory.
+2. Configure the app's required environment variables in the Vercel project,
+   including `MONGODB_URI` and `JWT_SECRET`. Add any optional provider
+   credentials used by your enabled features.
+3. If a browser frontend calls this API, set `CORS_ORIGINS` to its origin or
+   comma-separated origins (for example, `https://app.example.com`). The local
+   default remains `http://localhost:5173`.
+4. To deploy automatically from GitHub Actions on pushes to `main`, add
+   repository secrets named `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and
+   `VERCEL_PROJECT_ID`. Find the organization and project IDs by linking the
+   project with the Vercel CLI; do not commit these values or application
+   secrets.
+
 ## Authentication and profile
 
 - `POST /api/auth/register` and `POST /api/auth/login` keep the existing
