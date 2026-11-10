@@ -49,6 +49,7 @@ export const openApiSpec = {
         { name: "AI Summaries" },
         { name: "Income" },
         { name: "Budgets" },
+        { name: "Financial Goals" },
     ],
     components: {
         securitySchemes: {
@@ -105,6 +106,18 @@ export const openApiSpec = {
                 additionalProperties: false,
                 properties: {
                     text: { type: "string", minLength: 1, maxLength: 1000 },
+                },
+                BillImageParseRequest: {
+                    type: "object",
+                    required: ["image"],
+                    additionalProperties: false,
+                    properties: {
+                        image: {
+                            type: "string",
+                            format: "binary",
+                            description: "Exactly one non-animated JPEG, PNG, or WebP bill image, up to 5 MB and 16 megapixels. No extra fields.",
+                        },
+                    },
                 },
             },
                 MonthlySummaryRequest: {
@@ -623,13 +636,17 @@ export const openApiSpec = {
                 tags: ["AI Parsing"],
                 summary: "Parse one expense into a reviewable draft",
                 description:
-                    "Sends expense text to the configured Groq model. Infers categories from meaning (for example, dinner implies Food or Food & Dining) and prefers the best matching supplied expense category. The backend resolves predicted names only to the user's owned records; unmatched labels remain reviewable with null IDs. Ambiguous categories are left unset. It does not create or modify financial records. Uses the user's timezone. Unsupported currency or conversion requests are rejected.",
+                    "Accepts either JSON expense text or one multipart bill image (field: image), never both. Images use AI_VISION_MODEL and yield one draft using the final bill total including taxes/discounts, not one expense per line item. Multiple receipts in one image, foreign/unknown currency, corrupt images, or non-bills are rejected. Infers categories and prefers matching owned expense category names. Unmatched labels have null IDs. Missing or uncertain fields stay null with clarification prompts. Does not create records. Images are validated and processed in memory without persistent storage; image content is sent to Groq.",
                 security: secured,
                 requestBody: {
                     required: true,
                     content: {
                         "application/json": {
                             schema: { $ref: "#/components/schemas/ExpenseParseRequest" },
+                        },
+                        "multipart/form-data": {
+                            schema: { $ref: "#/components/schemas/BillImageParseRequest" },
+                            encoding: { image: { contentType: "image/jpeg, image/png, image/webp" } },
                         },
                     },
                 },
@@ -649,10 +666,11 @@ export const openApiSpec = {
                         },
                     },
                     "401": { description: "Missing or invalid session" },
-                    "422": { description: "Invalid expense query, unsupported currency, or multiple expenses" },
+                    "413": { description: "Bill image exceeds 5 MB or normalized image is too large" },
+                    "422": { description: "Invalid query/upload, multiple files or bills, unsupported/unclear currency, non-bill, corrupt/animated image, or image over 16 megapixels" },
                     "429": { description: "Per-user parser limit or provider quota reached" },
                     "502": { description: "Invalid AI response or rejected provider request" },
-                    "503": { description: "Parser is not configured, timed out, unavailable, model not found, or API key rejected" },
+                    "503": { description: "Parser or vision model is not configured, timed out, unavailable, model not found, or API key rejected" },
                 },
             },
         },
@@ -731,6 +749,196 @@ export const openApiSpec = {
                 responses: { "200": { description: "Updated budget" }, "404": { description: "Budget not found" } },
             },
             delete: securedDelete("Budgets", "Delete a budget"),
+        },
+        "/api/goals": {
+            get: {
+                tags: ["Financial Goals"],
+                summary: "List authenticated user's financial goals",
+                security: secured,
+                parameters: [
+                    { name: "status", in: "query", schema: { type: "string", enum: ["ACTIVE", "PAUSED", "COMPLETED"] } },
+                    { name: "category", in: "query", schema: { type: "string" } },
+                    { name: "priority", in: "query", schema: { type: "string", enum: ["HIGH", "MEDIUM", "LOW"] } },
+                    { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+                    { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+                    { name: "sortBy", in: "query", schema: { type: "string", enum: ["createdAt", "targetDate", "targetAmount", "name"] } },
+                    { name: "sortOrder", in: "query", schema: { type: "string", enum: ["asc", "desc"] } },
+                ],
+                responses: { "200": { description: "Paginated goals and savings summary" } },
+            },
+            post: {
+                tags: ["Financial Goals"],
+                summary: "Create a financial goal",
+                security: secured,
+                requestBody: {
+                    required: true,
+                    content: { "application/json": { schema: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["name", "category", "targetAmount", "targetDate"],
+                        properties: {
+                            name: { type: "string", maxLength: 100 },
+                            category: { type: "string", enum: ["EMERGENCY_FUND", "TRAVEL", "GADGETS", "VEHICLE", "EDUCATION", "HOME", "WEDDING", "DEBT_REPAYMENT", "OTHER"] },
+                            targetAmount: { type: "number", exclusiveMinimum: 0 },
+                            initialSavedAmount: { type: "number", minimum: 0 },
+                            targetDate: { type: "string", format: "date" },
+                            monthlyContribution: { type: "number", exclusiveMinimum: 0 },
+                            priority: { type: "string", enum: ["HIGH", "MEDIUM", "LOW"], default: "MEDIUM" },
+                        },
+                    } } },
+                },
+                responses: { "201": { description: "Created goal with calculated progress" }, "400": { description: "Invalid goal details" } },
+            },
+        },
+        "/api/goals/plan-preview": {
+            post: {
+                tags: ["Financial Goals"],
+                summary: "Preview a deterministic savings plan without creating a goal",
+                security: secured,
+                requestBody: {
+                    required: true,
+                    content: { "application/json": { schema: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["targetAmount", "currentSavedAmount", "targetDate"],
+                        properties: {
+                            targetAmount: { type: "number", exclusiveMinimum: 0 },
+                            currentSavedAmount: { type: "number", minimum: 0 },
+                            targetDate: { type: "string", format: "date" },
+                            monthlyContribution: { type: "number", minimum: 0 },
+                        },
+                    } } },
+                },
+                responses: { "200": { description: "Savings plan preview" }, "400": { description: "Invalid preview details" } },
+            },
+        },
+        "/api/goals/{goalId}": {
+            parameters: [{ name: "goalId", in: "path", required: true, schema: { type: "string" } }],
+            get: {
+                tags: ["Financial Goals"],
+                summary: "Get an owned goal and its latest contributions",
+                security: secured,
+                responses: { "200": { description: "Goal details and calculated metrics" }, "404": { description: "Goal not found" } },
+            },
+            patch: {
+                tags: ["Financial Goals"],
+                summary: "Update an owned goal",
+                security: secured,
+                requestBody: {
+                    required: true,
+                    content: { "application/json": { schema: {
+                        type: "object",
+                        minProperties: 1,
+                        additionalProperties: false,
+                        properties: {
+                            name: { type: "string", maxLength: 100 },
+                            category: { type: "string" },
+                            targetAmount: { type: "number", exclusiveMinimum: 0 },
+                            targetDate: { type: "string", format: "date" },
+                            monthlyContribution: { type: "number", exclusiveMinimum: 0 },
+                            priority: { type: "string", enum: ["HIGH", "MEDIUM", "LOW"] },
+                        },
+                    } } },
+                },
+                responses: { "200": { description: "Updated goal and recalculated metrics" }, "400": { description: "Invalid goal details" }, "404": { description: "Goal not found" } },
+            },
+            delete: {
+                tags: ["Financial Goals"],
+                summary: "Delete an owned goal and its contributions",
+                security: secured,
+                responses: { "200": { description: "Goal deleted" }, "404": { description: "Goal not found" } },
+            },
+        },
+        "/api/goals/{goalId}/status": {
+            parameters: [{ name: "goalId", in: "path", required: true, schema: { type: "string" } }],
+            patch: {
+                tags: ["Financial Goals"],
+                summary: "Pause or resume an owned goal",
+                security: secured,
+                requestBody: {
+                    required: true,
+                    content: { "application/json": { schema: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["status"],
+                        properties: { status: { type: "string", enum: ["ACTIVE", "PAUSED"] } },
+                    } } },
+                },
+                responses: { "200": { description: "Updated goal status" }, "404": { description: "Goal not found" } },
+            },
+        },
+        "/api/goals/{goalId}/contributions": {
+            parameters: [{ name: "goalId", in: "path", required: true, schema: { type: "string" } }],
+            get: {
+                tags: ["Financial Goals"],
+                summary: "List contributions for an owned goal",
+                security: secured,
+                parameters: [
+                    { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+                    { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+                    { name: "sortOrder", in: "query", schema: { type: "string", enum: ["asc", "desc"] } },
+                ],
+                responses: { "200": { description: "Paginated contribution history" }, "404": { description: "Goal not found" } },
+            },
+            post: {
+                tags: ["Financial Goals"],
+                summary: "Record a savings contribution",
+                security: secured,
+                requestBody: {
+                    required: true,
+                    content: { "application/json": { schema: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["amount", "contributionDate"],
+                        properties: {
+                            amount: { type: "number", exclusiveMinimum: 0 },
+                            contributionDate: { type: "string", format: "date" },
+                            description: { type: "string", maxLength: 500 },
+                        },
+                    } } },
+                },
+                responses: { "201": { description: "Contribution and updated goal summary" }, "400": { description: "Invalid contribution details" }, "404": { description: "Goal not found" }, "409": { description: "Contribution exceeds remaining target" } },
+            },
+        },
+        "/api/goals/{goalId}/contributions/{contributionId}": {
+            parameters: [
+                { name: "goalId", in: "path", required: true, schema: { type: "string" } },
+                { name: "contributionId", in: "path", required: true, schema: { type: "string" } },
+            ],
+            patch: {
+                tags: ["Financial Goals"],
+                summary: "Edit an owned contribution",
+                security: secured,
+                requestBody: {
+                    required: true,
+                    content: { "application/json": { schema: {
+                        type: "object",
+                        minProperties: 1,
+                        additionalProperties: false,
+                        properties: {
+                            amount: { type: "number", exclusiveMinimum: 0 },
+                            contributionDate: { type: "string", format: "date" },
+                            description: { type: "string", maxLength: 500 },
+                        },
+                    } } },
+                },
+                responses: { "200": { description: "Updated contribution and goal summary" }, "404": { description: "Goal or contribution not found" }, "409": { description: "Updated contribution exceeds target" } },
+            },
+            delete: {
+                tags: ["Financial Goals"],
+                summary: "Delete an owned contribution",
+                security: secured,
+                responses: { "200": { description: "Deleted contribution and updated goal summary" }, "404": { description: "Goal or contribution not found" } },
+            },
+        },
+        "/api/goals/{goalId}/savings-plan": {
+            parameters: [{ name: "goalId", in: "path", required: true, schema: { type: "string" } }],
+            get: {
+                tags: ["Financial Goals"],
+                summary: "Calculate an owned goal's savings plan",
+                security: secured,
+                responses: { "200": { description: "Deterministic savings plan" }, "404": { description: "Goal not found" } },
+            },
         },
     },
 };

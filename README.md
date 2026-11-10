@@ -74,6 +74,66 @@ processing. Avoid including unnecessary sensitive details. Provider failures,
 timeouts, and quota errors are returned explicitly; no local parser is used as
 a fallback.
 
+### Bill image parsing
+
+The same `POST /api/expenses/parse` endpoint also accepts `multipart/form-data`
+with **exactly one file named `image`** and no other fields. Continue to send
+JSON `{ "text": "..." }` for text parsing; do not combine text and an image.
+Only non-animated JPEG, PNG, and WebP files up to **5 MB** and **16 megapixels**
+are accepted. PDFs, image URLs, base64 JSON uploads, and multiple file uploads
+are not supported.
+
+Set `AI_VISION_MODEL` to an active Groq vision-capable model available to your
+account (for example, `qwen/qwen3.8-27b`, currently listed in Groq's
+[vision documentation](https://console.groq.com/docs/vision)).
+It is required for images and separate from the text-only `AI_MODEL`.
+The existing API key, provider, timeout, and per-user parse limit are shared
+between text and image parsing.
+
+Browser example:
+
+```javascript
+const form = new FormData();
+form.append("image", selectedFile);
+const response = await fetch("http://localhost:3000/api/expenses/parse", {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}` },
+  body: form,
+});
+const result = await response.json();
+if (!response.ok) throw new Error(result.message);
+const draft = result.data.draft;
+```
+
+Do **not** manually set `Content-Type` for FormData; the browser adds the
+multipart boundary. In Postman choose **Body > form-data**, add the `image`
+key as **File**, and attach one bill image with a bearer token.
+
+The response shape is identical to text parsing. The bill's **final payable
+total**, including tax and discounts, becomes the amount for **one draft
+expense**. Multiple line items on the same bill are not separate expenses.
+The merchant/purchase context drives category prediction and owned-category
+matching. The bill date is used only when legible and unambiguous; missing
+or uncertain amounts/dates stay `null` with clarification prompts. No record
+is saved: review/edit the draft, then use `POST /api/expenses` to save it.
+
+Upload one bill per image. The vision model is instructed to reject unrelated
+images and images containing several separate bills, including collages.
+Only visibly INR bills are supported; foreign/mixed currency returns
+`UNSUPPORTED_CURRENCY`, and undetectable currency returns
+`BILL_CURRENCY_UNCLEAR` (HTTP 422). AI extraction can be inaccurate; users must
+review the total, currency, date, and category before saving.
+
+Files are validated by decoding, auto-oriented, and re-encoded as JPEG without
+metadata before being sent to Groq. The server does not persist uploaded
+images. The **visible image content is shared with Groq**, so crop/redact
+unnecessary personal or payment details before uploading; metadata stripping
+does not redact visible text. The model is instructed not to copy sensitive
+payment/identity details into the draft. Upload errors are explicit:
+`413` for size limits, `422` for malformed/multiple/unsupported uploads, and
+`503 AI_VISION_NOT_CONFIGURED` when the vision model is unset. Provider errors
+use the same codes as text parsing, with no silent OCR fallback.
+
 User responses include `id`, `name`, `email`, `preferredCurrency`, `timezone`,
 and `hasPassword`. New accounts default to INR and `Asia/Kolkata`; existing
 accounts without stored preferences are represented with those defaults.

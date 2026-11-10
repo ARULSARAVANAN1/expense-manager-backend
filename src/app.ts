@@ -4,6 +4,7 @@ import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import accountRoutes from "./routes/account.routes.js";
 import budgetRoutes from "./routes/budget.routes.js";
+import financialGoalRoutes from "./routes/financial-goal.routes.js";
 import summaryRoutes from "./routes/summary.routes.js";
 import { expensesRouter, incomesRouter } from "./routes/transaction.routes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -42,6 +43,7 @@ app.use("/api/accounts", accountRoutes);
 app.use("/api/expenses", expensesRouter);
 app.use("/api/incomes", incomesRouter);
 app.use("/api/budgets", budgetRoutes);
+app.use("/api/goals", financialGoalRoutes);
 app.use("/api/summaries", summaryRoutes);
 
 // Must be after routes

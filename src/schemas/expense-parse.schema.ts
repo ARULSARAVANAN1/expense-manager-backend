@@ -4,6 +4,8 @@ export const expenseParseSchema = z.object({
     text: z.string().trim().min(1).max(1000),
 }).strict();
 
+export const billUploadFieldsSchema = z.object({}).strict();
+
 export const aiExpenseDraftSchema = z.object({
     isExpense: z.boolean(),
     isSingleExpense: z.boolean(),
@@ -13,4 +15,8 @@ export const aiExpenseDraftSchema = z.object({
     categoryName: z.string().nullable(),
     accountName: z.string().nullable(),
     notes: z.string().nullable(),
+}).strict();
+
+export const aiBillDraftSchema = aiExpenseDraftSchema.extend({
+    currency: z.enum(["INR", "NON_INR", "UNKNOWN"]),
 }).strict();

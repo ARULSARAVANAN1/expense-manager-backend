@@ -96,6 +96,7 @@ export async function requestAiJson<T>(input: {
     system: string;
     data: unknown;
     schema: z.ZodType<T>;
+    imageDataUrl?: string;
 }): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
@@ -115,7 +116,13 @@ export async function requestAiJson<T>(input: {
                 response_format: { type: "json_object" },
                 messages: [
                     { role: "system", content: input.system },
-                    { role: "user", content: JSON.stringify(input.data) },
+                    {
+                        role: "user",
+                        content: input.imageDataUrl ? [
+                            { type: "text", text: JSON.stringify(input.data) },
+                            { type: "image_url", image_url: { url: input.imageDataUrl } },
+                        ] : JSON.stringify(input.data),
+                    },
                 ],
             }),
         });
