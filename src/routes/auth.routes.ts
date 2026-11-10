@@ -4,6 +4,8 @@ import {
     registerController,
     loginController,
     meController,
+    logoutController,
+    googleLoginController,
 } from "../controllers/auth.controller.js";
 
 import { validate } from "../middleware/validate.js";
@@ -28,10 +30,14 @@ router.post(
     loginController
 );
 
+router.post("/google", googleLoginController);
+
 router.get(
     "/me",
     authenticate,
     meController
 );
+
+router.post("/logout", authenticate, logoutController);
 
 export default router;

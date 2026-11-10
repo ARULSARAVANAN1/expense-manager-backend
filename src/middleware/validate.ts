@@ -13,6 +13,7 @@ export function validate(schema: ZodSchema) {
             res.status(400).json({
                 success: false,
                 message: "Validation failed",
+                code: "VALIDATION_ERROR",
                 errors: result.error.flatten(),
             });
 

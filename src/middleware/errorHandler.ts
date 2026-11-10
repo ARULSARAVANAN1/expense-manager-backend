@@ -8,12 +8,40 @@ export function errorHandler(
     res: Response,
     _next: NextFunction
 ) {
-    console.error(error);
+    if (
+        typeof error === "object" &&
+        error !== null &&
+        "type" in error &&
+        error.type === "entity.parse.failed"
+    ) {
+        res.status(400).json({
+            success: false,
+            message: "Malformed JSON request body",
+            code: "MALFORMED_JSON",
+        });
+        return;
+    }
+
+    if (
+        typeof error === "object" &&
+        error !== null &&
+        "type" in error &&
+        error.type === "entity.too.large"
+    ) {
+        res.status(413).json({
+            success: false,
+            message: "Request body is too large",
+            code: "PAYLOAD_TOO_LARGE",
+        });
+        return;
+    }
 
     if (error instanceof AppError) {
         res.status(error.statusCode).json({
             success: false,
             message: error.message,
+            code: error.code,
+            ...(error.errors ? { errors: error.errors } : {}),
         });
 
         return;
@@ -29,6 +57,7 @@ export function errorHandler(
         res.status(409).json({
             success: false,
             message: "Resource already exists",
+            code: "DUPLICATE_RESOURCE",
         });
 
         return;
@@ -39,6 +68,7 @@ export function errorHandler(
         res.status(400).json({
             success: false,
             message: "Validation failed",
+            code: "VALIDATION_ERROR",
             errors: Object.values(error.errors).map(
                 (item) => item.message
             ),
@@ -47,8 +77,10 @@ export function errorHandler(
         return;
     }
 
+    console.error(error);
     res.status(500).json({
         success: false,
         message: "Internal server error",
+        code: "INTERNAL_SERVER_ERROR",
     });
 }

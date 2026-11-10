@@ -2,7 +2,8 @@ import mongoose, { Schema } from "mongoose";
 
 export interface IAccount {
     name: string;
-    type: "BANK" | "CASH" | "CREDIT_CARD" | "WALLET";
+    type?: "BANK" | "CASH" | "CREDIT_CARD" | "WALLET";
+    normalizedName?: string;
     balance: number;
     userId: mongoose.Types.ObjectId;
     createdAt: Date;
@@ -17,10 +18,15 @@ const accountSchema = new Schema<IAccount>(
             trim: true,
         },
 
+        normalizedName: {
+            type: String,
+            trim: true,
+        },
+
         type: {
             type: String,
             enum: ["BANK", "CASH", "CREDIT_CARD", "WALLET"],
-            required: true,
+            default: "WALLET",
         },
 
         balance: {
@@ -36,6 +42,14 @@ const accountSchema = new Schema<IAccount>(
     },
     {
         timestamps: true,
+    }
+);
+
+accountSchema.index(
+    { userId: 1, normalizedName: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { normalizedName: { $type: "string" } },
     }
 );
 

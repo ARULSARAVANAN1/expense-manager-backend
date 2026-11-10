@@ -14,7 +14,7 @@ export const registerSchema = z.object({
     password: z
         .string()
         .min(6, "Password must contain at least 6 characters"),
-});
+}).strict();
 
 export const loginSchema = z.object({
     email: z
@@ -25,4 +25,8 @@ export const loginSchema = z.object({
     password: z
         .string()
         .min(1, "Password is required"),
-});
+}).strict();
+
+export const googleLoginSchema = z.object({
+    credential: z.string().min(1).max(8192),
+}).strict();

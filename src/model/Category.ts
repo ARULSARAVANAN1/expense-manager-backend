@@ -3,6 +3,9 @@ import mongoose, { Schema } from "mongoose";
 export interface ICategory {
     name: string;
     type: "INCOME" | "EXPENSE";
+    normalizedName?: string;
+    icon: string;
+    color: string;
     userId: mongoose.Types.ObjectId;
     createdAt: Date;
     updatedAt: Date;
@@ -16,10 +19,27 @@ const categorySchema = new Schema<ICategory>(
             trim: true,
         },
 
+        normalizedName: {
+            type: String,
+            trim: true,
+        },
+
         type: {
             type: String,
             enum: ["INCOME", "EXPENSE"],
             required: true,
+        },
+
+        icon: {
+            type: String,
+            default: "tag",
+            maxlength: 32,
+        },
+
+        color: {
+            type: String,
+            default: "#808080",
+            match: /^#[0-9A-Fa-f]{6}$/,
         },
 
         userId: {
@@ -30,6 +50,14 @@ const categorySchema = new Schema<ICategory>(
     },
     {
         timestamps: true,
+    }
+);
+
+categorySchema.index(
+    { userId: 1, type: 1, normalizedName: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { normalizedName: { $type: "string" } },
     }
 );
 

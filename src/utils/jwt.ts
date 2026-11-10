@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 
 interface JwtPayload {
     userId: string;
+    sessionVersion: number;
 }
 
 function getJwtSecret(): string {
@@ -14,9 +15,12 @@ function getJwtSecret(): string {
     return secret;
 }
 
-export function generateToken(userId: string): string {
+export function generateToken(
+    userId: string,
+    sessionVersion = 0
+): string {
     return jwt.sign(
-        { userId },
+        { userId, sessionVersion },
         getJwtSecret(),
         {
             expiresIn: "1d",
@@ -30,14 +34,15 @@ export function verifyToken(token: string): JwtPayload {
         getJwtSecret()
     );
 
-    if (
-        typeof decoded === "string" ||
-        typeof decoded.userId !== "string"
-    ) {
+    if (typeof decoded === "string" || typeof decoded.userId !== "string") {
         throw new Error("Invalid token");
     }
 
     return {
         userId: decoded.userId,
+        sessionVersion:
+            typeof decoded.sessionVersion === "number"
+                ? decoded.sessionVersion
+                : 0,
     };
 }
