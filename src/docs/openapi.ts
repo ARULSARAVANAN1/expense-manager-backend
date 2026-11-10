@@ -46,6 +46,7 @@ export const openApiSpec = {
         { name: "Accounts" },
         { name: "Expenses" },
         { name: "AI Parsing" },
+        { name: "AI Summaries" },
         { name: "Income" },
         { name: "Budgets" },
     ],
@@ -106,6 +107,126 @@ export const openApiSpec = {
                     text: { type: "string", minLength: 1, maxLength: 1000 },
                 },
             },
+                MonthlySummaryRequest: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                        month: {
+                            type: "string",
+                            pattern: "^(?!0000)\\d{4}-(0[1-9]|1[0-2])$",
+                            example: "2026-11",
+                            description: "Defaults to the current month in the user's timezone.",
+                        },
+                    },
+                },
+                MonthlySummaryCategory: {
+                    type: "object",
+                    required: ["categoryName", "amount", "transactionCount"],
+                    properties: {
+                        categoryName: { type: "string" },
+                        amount: { type: "number", description: "INR rupees" },
+                        transactionCount: { type: "integer", minimum: 1 },
+                    },
+                },
+                MonthlySummaryResult: {
+                    type: "object",
+                    required: [
+                        "month", "timezone", "currency", "totals",
+                        "topIncomeCategories", "topExpenseCategories",
+                        "summary", "highlights", "savingSuggestions", "source", "card", "comparison",
+                    ],
+                    properties: {
+                        month: { type: "string", example: "2026-11" },
+                        timezone: { type: "string", example: "Asia/Kolkata" },
+                        currency: { type: "string", enum: ["INR"] },
+                        totals: {
+                            type: "object",
+                            required: ["income", "expense", "netSavings", "savingsRate", "incomeCount", "expenseCount"],
+                            properties: {
+                                income: { type: "number" },
+                                expense: { type: "number" },
+                                netSavings: { type: "number", description: "Income minus expenses; may be negative." },
+                                savingsRate: { type: "number", nullable: true, description: "Net savings / income as a percentage, rounded to two decimals. Null without income." },
+                                incomeCount: { type: "integer", minimum: 0 },
+                                expenseCount: { type: "integer", minimum: 0 },
+                            },
+                        },
+                        topIncomeCategories: {
+                            type: "array", maxItems: 5,
+                            items: { $ref: "#/components/schemas/MonthlySummaryCategory" },
+                        },
+                        topExpenseCategories: {
+                            type: "array", maxItems: 5,
+                            items: { $ref: "#/components/schemas/MonthlySummaryCategory" },
+                        },
+                        summary: { type: "string", maxLength: 2000 },
+                        highlights: {
+                            type: "array", maxItems: 5,
+                            items: { type: "string", minLength: 1, maxLength: 500 },
+                        },
+                        savingSuggestions: {
+                            type: "array", maxItems: 5,
+                            items: { type: "string", minLength: 1, maxLength: 500 },
+                        },
+                        source: { type: "string", enum: ["ai", "none"] },
+                        card: {
+                            type: "object",
+                            required: ["greeting", "introduction", "insights"],
+                            properties: {
+                                greeting: { type: "string", example: "Good afternoon!" },
+                                introduction: { type: "string" },
+                                insights: {
+                                    type: "array", maxItems: 3,
+                                    description: "Exactly three items in trend, saving, progress order for AI responses; empty for no activity. Render as plain text; map type to frontend icons/colors.",
+                                    items: {
+                                        type: "object",
+                                        required: ["type", "title", "message"],
+                                        additionalProperties: false,
+                                        properties: {
+                                            type: { type: "string", enum: ["trend", "saving", "progress"] },
+                                            title: { type: "string", minLength: 1, maxLength: 100 },
+                                            message: { type: "string", minLength: 1, maxLength: 500 },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        comparison: {
+                            type: "object",
+                            required: ["previousMonth", "hasPreviousRecords", "basis", "isCurrentMonth", "previousTotals", "expenseChangePercent", "netSavingsChange", "expenseCategories"],
+                            properties: {
+                                previousMonth: { type: "string" },
+                                hasPreviousRecords: { type: "boolean" },
+                                basis: { type: "string", enum: ["full_calendar_months"] },
+                                isCurrentMonth: { type: "boolean", description: "Current-month data may be incomplete; this is not an equal-elapsed-days comparison." },
+                                previousTotals: {
+                                    type: "object", nullable: true,
+                                    required: ["income", "expense", "netSavings"],
+                                    properties: {
+                                        income: { type: "number" },
+                                        expense: { type: "number" },
+                                        netSavings: { type: "number" },
+                                    },
+                                },
+                                expenseChangePercent: { type: "number", nullable: true, description: "Null without previous records or positive previous expenses." },
+                                netSavingsChange: { type: "number", nullable: true, description: "INR difference; null without previous records." },
+                                expenseCategories: {
+                                    type: "array", maxItems: 5,
+                                    items: {
+                                        type: "object",
+                                        required: ["categoryName", "amount", "previousAmount", "changePercent"],
+                                        properties: {
+                                            categoryName: { type: "string" },
+                                            amount: { type: "number" },
+                                            previousAmount: { type: "number", nullable: true },
+                                            changePercent: { type: "number", nullable: true },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
             ExpenseParseResult: {
                 type: "object",
                 properties: {
@@ -458,12 +579,51 @@ export const openApiSpec = {
                 responses: { "201": { description: "Created expense" }, "422": { description: "Invalid amount, date, or references" } },
             },
         },
+        "/api/summaries/monthly": {
+            post: {
+                tags: ["AI Summaries"],
+                summary: "Summarize monthly income and expenses",
+                description:
+                    "Uses all authenticated-user transactions in the selected calendar month. Server-calculated INR totals are authoritative; Groq supplies summary text, highlights, and saving suggestions from aggregates only. Does not modify records. Empty months return source 'none' without calling AI. The current month defaults using the user's timezone; transaction boundaries follow stored calendar dates.",
+                security: secured,
+                requestBody: {
+                    required: false,
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/MonthlySummaryRequest" },
+                        },
+                    },
+                },
+                responses: {
+                    "200": {
+                        description: "Monthly totals, top categories, and insights (or explicit no-activity result)",
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    required: ["success", "data"],
+                                    properties: {
+                                        success: { type: "boolean", example: true },
+                                        data: { $ref: "#/components/schemas/MonthlySummaryResult" },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    "401": { description: "Missing or invalid session" },
+                    "422": { description: "Invalid month or unknown request fields" },
+                    "429": { description: "Per-user summary limit or provider quota reached" },
+                    "502": { description: "Invalid AI response or rejected provider request" },
+                    "503": { description: "AI is not configured, timed out, or unavailable" },
+                },
+            },
+        },
         "/api/expenses/parse": {
             post: {
                 tags: ["AI Parsing"],
                 summary: "Parse one expense into a reviewable draft",
                 description:
-                    "Sends expense text to the configured Groq model. It does not create or modify any financial records. The server uses the authenticated user's timezone and only resolves category/account names to that user's owned records. Unsupported currency or conversion requests are rejected.",
+                    "Sends expense text to the configured Groq model. Infers categories from meaning (for example, dinner implies Food or Food & Dining) and prefers the best matching supplied expense category. The backend resolves predicted names only to the user's owned records; unmatched labels remain reviewable with null IDs. Ambiguous categories are left unset. It does not create or modify financial records. Uses the user's timezone. Unsupported currency or conversion requests are rejected.",
                 security: secured,
                 requestBody: {
                     required: true,
